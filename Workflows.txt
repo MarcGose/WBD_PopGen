@@ -1,0 +1,223 @@
+# Workflows for SNP filtering and some downstream analyses
+# Were performed on an interactive node on the UoE HPC cluster EDDIE
+
+qlogin -l h_vmem=16g
+
+		###########################
+		###### SNP filtering ######
+		###########################
+
+module load roslin/plink/1.90p
+
+# Initial SNP filtering on full dataset
+# First recode .tped .tfam file
+
+plink --tfile WBD_GLs --recode --allow-extra-chr --out WBD_GLs
+plink --tfile WBD_GLs --recode vcf-fid --allow-extra-chr --out WBD_GLs
+plink --file WBD_GLs --make-bed --allow-extra-chr --out WBD_GLs
+
+# inspect individual heterozygosity and missing data
+
+plink --file WBD_GLs --het --allow-extra-chr --out WBD_GLs
+plink --file WBD_GLs --missing --allow-extra-chr --out WBD_GLs
+
+# remove inds with >50% missing data and extrordinary het (probably contamination)
+
+# run ANGSD again with reduced sample set
+
+qsub 4.0_angsd.sh
+
+# filter for minor allele count and genotyping rate
+
+plink --tfile WBD_GLs --mac 2 --geno 0.5 \
+--write-snplist --allow-extra-chr \
+--out WBD_GLs
+
+# Linkage disequilibrium
+
+plink --tfile WBD_GLs --indep 50 5 2 \
+--extract WBD_GLs.snplist --allow-extra-chr \
+--out WBD_GLs
+
+# Generate some files with filtered SNPs
+
+plink --tfile WBD_GLs --recode \
+--extract WBD_GLs.prune.in \
+--allow-extra-chr --out WBD_GLs
+
+plink --tfile WBD_GLs --recode vcf-fid \
+--extract WBD_GLs.prune.in \
+--allow-extra-chr --out WBD_GLs
+
+plink --file WBD_GLs --make-bed \
+--extract WBD_GLs.prune.in \
+--allow-extra-chr --out WBD_GLs
+
+		###################
+		##### PCAngsd #####
+		###################
+
+module load anaconda
+conda activate /exports/cmvm/eddie/eb/groups/ogden_grp/marc/anaconda/envs/pcangsd
+
+pcangsd -p WBD_GLs --minMaf 0 -t 4 -o WBD_GLs_PCAngsd
+
+# plot results on local machine 7.0_PCAngsd.R
+
+		#####################
+		###### NGSadmix #####
+		#####################
+
+# run script to generate outputs
+
+qsub 5.0_NGSadmix.sh
+
+# Sort K=3 by admixture proportion
+# Source script from  https://github.com/darencard/RADpipe/meta_sort_NGSadmix.py
+# required is a metadata file with ID in column1 and pop assignment in column2
+
+module load igmm/apps/python/2.7.10 #needs to be this version 
+
+python /exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/meta_sort_NGSadmix.py --metadata WBD_metadata.txt --admixture WBD_GLs_NGSadmix_K3*.qopt --prefix WBD_admix --col 3 
+
+echo "Pop1      Pop2    " | cat - WBD_GLs_NGSadmix_K3_run10_out.qopt.tsv > temp && mv temp WBD_GLs_NGSadmix_K3_run10_out.qopt.reformat.tsv 
+
+paste WBD_metadata.txt WBD_GLs_NGSadmix_K3_run10_out.qopt.reformat.tsv > WBD_admix.meta.tsv
+
+mv WBD_admix.meta.tsv K=3_sorted.txt
+
+# remove "Pop1" and "Pop2" from header 
+# download to local mashine and plot for manuscript figure 8.0_NGSadmix.R
+
+		###################
+		#### STRUCTURE ####
+		###################
+
+# download to local machine VCF file with filtered SNPs (mac, geno, linkage, relatedness)
+# convert VCF to .stru file in PGDspider
+# upload .stru file as input for BA3-SNPs
+
+# run parallel structure
+# make sure no SNPs and inds is correct in R script
+
+qsub 5.1_structure.sh
+
+# plot output using pophelper package in R and determine optimal K on http://clumpak.tau.ac.il/
+
+		########################
+		#### Heterozygosity ####
+		########################
+
+plink --file WBD_GLs --extract WBD_GLs.prune.in \
+--recode AD --het --ibc \
+--allow-extra-chr --out WBD_GLs
+
+# download to local mashine and plot MLH for manuscript figure 11.0_MLH.R
+
+		######################
+		#### Relatedness #####
+		######################
+
+# This needs to be done on each pop separately
+# Generate .genome file in PLINK
+
+plink --file WBD_GLs --extract WBD_GLs.prune.in \
+--genome --allow-extra-chr --out WBD_GLs
+
+# Run NGSrelate
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/ngsRelate/ngsRelate -h WBD_GLs.vcf -T GT -O WBD_NGSrelate.res -c 1
+
+# download to local mashine and plot MLH for manuscript figure 12.0_Relatedness.R
+# remove one ind of PO pair detected between two ICE inds
+
+		##################
+		#### Geleflow ####
+		##################
+
+# download to local machine VCF file with filtered SNPs (mac, geno, linkage, relatedness)
+# convert VCF to .inp file in PGDspider
+# upload .inp file as input for BA3-SNPs
+
+# log onto screen session
+
+ssh s2113685@login03-ext.ecdf.ed.ac.uk
+
+# Start screen session and name it
+
+screen -S BA3
+
+# log onto qlogin node
+
+qlogin -l h_vmem=16g
+
+# add BA3 to path 
+export PATH=$PATH:/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/
+
+# run autotune to determine optimal param values
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BA3-SNPS-autotune-master/BA3-SNPS-autotune.py -i WBD_GLs.inp -l 1751 -o WBD_GLs
+
+##M     A       F
+0.1563  0.3250  0.0500
+
+# Run BA3-SNPs several times with different seeds
+
+# Run Seed 1
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 1 -o WBD_GLs
+
+# Run Seed 10
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 10 -o WBD_GLs
+
+# Run Seed 100
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 100 -o WBD_GLs
+
+# Run Seed 1000
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 1000 -o WBD_GLs
+
+# Run Seed 10000
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 10000 -o WBD_GLs
+
+# Run Seed 10743
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 10743 -o WBD_GLs
+
+# Run Seed 32764
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 32764 -o WBD_GLs
+
+# Run Seed 638563
+
+/exports/cmvm/eddie/eb/groups/ogden_grp/marc/software/BayesAss3-SNPs-master/BA3-SNPS -F WBD_GLs.inp -l 1751 \
+-m 0.1563 -a 0.3250 -f 0.0500 \
+-i10000000 -b1000000 -n1000 \
+-t -g -u -s 638563 -o WBD_GLs
+
+# calculate mean migration rates and mean standard deviations (Supplemetare Table S1)
+# insert values into 10.0_Geneflow_BA3.R to plot figure for manuscript
