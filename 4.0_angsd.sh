@@ -28,6 +28,7 @@ SOFTWARE_DIR=/exports/cmvm/eddie/eb/groups/ogden_grp/emily/software/angsd-v0.935
 BAM_LIST=/exports/cmvm/eddie/eb/groups/ogden_grp/marc/wbd_dart_2022/file_lists/bamlist.txt
 OUTPUT_DIR=/exports/cmvm/eddie/eb/groups/ogden_grp/marc/wbd_dart_2022/data/out/angsd
 REFERENCE=/exports/cmvm/eddie/eb/groups/ogden_grp/marc/assembly/WBD/ncbi_dataset/data/GCA_949774975.1/GCA_949774975.1_mLagAlb1.1_genomic.fna
+SNP_LIST=/exports/cmvm/eddie/eb/groups/ogden_grp/marc/wbd_dart_2022/file_lists/snp_list_tab.txt
 
 # Run process
 
@@ -42,7 +43,7 @@ $SOFTWARE_DIR/angsd \
         -remove_bads 1 \
         -only_proper_pairs 1 \
         -trim 0 \
-	-minInd 157 \
+	-minInd 126 \
         -C 50 \
         -baq 1 \
         -minMapQ 30 \
@@ -53,8 +54,9 @@ $SOFTWARE_DIR/angsd \
         -doMajorMinor 4 \
         -doMaf 1 \
         -SNP_pval 1e-6 \
-	-setMinDepth 980 \
-	-setMaxDepth 3920 \
+	-setMinDepth 785 \
+	-setMaxDepth 3140 \
+	-sites $SNP_LIST \
         -doGeno 2 \
         -doPost 1 \
         -doPlink 2
